@@ -1,7 +1,6 @@
 import os
 
 from dotenv import load_dotenv
-
 from otpi import OTPi
 
 load_dotenv()

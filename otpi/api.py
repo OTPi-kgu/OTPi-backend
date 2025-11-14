@@ -3,7 +3,7 @@ import smtplib
 from email.mime.text import MIMEText
 from typing import Optional
 
-from totp import TOTP
+from .totp import TOTP
 
 
 class OTPi:
