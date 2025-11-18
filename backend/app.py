@@ -1,0 +1,138 @@
+# main.py
+from datetime import datetime
+
+from backend.models import User
+from backend.schemas import (OTPRequest, OTPVerifyRequest, RegisterRequest,
+                             UserResponse)
+from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from otpi import OTPi
+from sqlalchemy.orm import Session
+
+from .config import settings
+from .database import Base, engine, get_db
+
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    debug=settings.DEBUG,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/", tags=["health"])
+def root():
+    return {"message": "OTP FastAPI backend running"}
+
+
+@app.post("/register", response_model=UserResponse, tags=["auth"])
+def register(
+    payload: RegisterRequest,
+    db: Session = Depends(get_db),
+):
+    existing = db.query(User).filter(User.email == payload.email).first()
+    if existing:
+        return existing
+
+    secret = OTPi.generate_secret()
+
+    user = User(
+        name=payload.name,
+        email=payload.email,
+        secret=secret,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    return user
+
+@app.post("/request-otp", tags=["auth"])
+def request_otp(
+    payload: OTPRequest,
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.email == payload.email).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="등록되지 않은 이메일입니다.",
+        )
+
+    if not (settings.SMTP_USER and settings.SMTP_PASSWORD and settings.SMTP_HOST):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="SMTP 설정이 누락되어 있습니다. 서버의 .env 파일을 확인하세요.",
+        )
+
+    otpi = OTPi(
+        secret=user.secret,
+        interval=settings.OTP_INTERVAL,
+        digits=settings.OTP_DIGITS,
+        smtp_host=settings.SMTP_HOST,
+        smtp_port=settings.SMTP_PORT,
+        smtp_user=settings.SMTP_USER,
+        smtp_password=settings.SMTP_PASSWORD,
+    )
+
+    try:
+        otpi.send_otp(payload.email)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"이메일 전송에 실패했습니다: {e}",
+        )
+
+    return {
+        "message": "OTP가 이메일로 발송되었습니다.",
+        "email": payload.email,
+    }
+
+
+@app.post("/verify-otp", tags=["auth"])
+def verify_otp(
+    payload: OTPVerifyRequest,
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.email == payload.email).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="등록되지 않은 이메일입니다.",
+        )
+
+    otpi = OTPi(
+        secret=user.secret,
+        interval=settings.OTP_INTERVAL,
+        digits=settings.OTP_DIGITS,
+        smtp_host=settings.SMTP_HOST,
+        smtp_port=settings.SMTP_PORT,
+        smtp_user=settings.SMTP_USER,
+        smtp_password=settings.SMTP_PASSWORD,
+    )
+
+    is_valid = otpi.verify_code(payload.code)
+
+    if not is_valid:
+        return {
+            "message": "OTP 인증 실패",
+            "email": payload.email,
+            "login": False,
+        }
+
+    user.last_login_at = datetime.utcnow()
+    db.commit()
+
+    return {
+        "message": "OTP 인증 성공",
+        "email": payload.email,
+        "login": True,
+    }

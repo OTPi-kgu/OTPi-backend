@@ -1,4 +1,4 @@
-# otp.py
+# otpi/api.py
 import smtplib
 from email.mime.text import MIMEText
 from typing import Optional
@@ -18,33 +18,24 @@ class OTPi:
         smtp_password: Optional[str] = None,
         from_email: Optional[str] = None,
     ):
-        # OTP 관련 설정
         self.secret = secret
         self.interval = interval
         self.digits = digits
         self._totp = TOTP(self.secret, digits=self.digits, interval=self.interval)
 
-        # SMTP 설정
         self.smtp_host = smtp_host
         self.smtp_port = smtp_port
         self.smtp_user = smtp_user
         self.smtp_password = smtp_password
-        # 발신자 주소(별도로 지정 안 하면 smtp_user 사용)
         self.from_email = from_email or smtp_user
 
-    @classmethod
-    def with_random_secret(
-        cls,
-        interval: int = 90,
-        digits: int = 6,
-        **smtp_kwargs,
-    ) -> "OTPi":
+    @staticmethod
+    def generate_secret(length: int = 20) -> bytes:
         """
-        새 랜덤 시크릿으로 OTPi 인스턴스를 만들고 싶을 때 쓰는 헬퍼.
+        새 사용자용 랜덤 시크릿 생성 (DB에 그대로 bytes로 저장하는 용도)
         """
-        secret = TOTP.generate_secret()
-        return cls(secret=secret, interval=interval, digits=digits, **smtp_kwargs)
-
+        return TOTP.generate_secret(length=length)
+    
     def get_code(self) -> str:
         """
         현재 시간 기준 OTP 코드 생성

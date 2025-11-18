@@ -1,4 +1,4 @@
-# totp.py
+# otpi/totp.py
 import hashlib
 import hmac
 import os
