@@ -1,10 +1,11 @@
 # main.py
-from datetime import datetime
+import secrets
+from datetime import datetime, timezone
 
 from backend.models import User
 from backend.schemas import (OTPRequest, OTPVerifyRequest, RegisterRequest,
                              UserResponse)
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Cookie, Depends, FastAPI, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from otpi import OTPi
 from sqlalchemy.orm import Session
@@ -27,10 +28,33 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def get_current_user(
+    db: Session = Depends(get_db),
+    token: str | None = Cookie(default=None),
+):
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="로그인이 필요합니다.",
+        )
+
+    user = db.query(User).filter(User.token == token).first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="유효하지 않은 세션입니다.",
+        )
+
+    return user
+
+@app.get("/me", response_model=UserResponse, tags=["auth"])
+def me(current_user: User = Depends(get_current_user)):
+    return current_user
 
 @app.get("/", tags=["health"])
 def root():
-    return {"message": "OTP FastAPI backend running"}
+    return {"message": "OTP Backend is running."}
 
 
 @app.post("/register", response_model=UserResponse, tags=["auth"])
@@ -100,6 +124,7 @@ def request_otp(
 @app.post("/verify-otp", tags=["auth"])
 def verify_otp(
     payload: OTPVerifyRequest,
+    res: Response,
     db: Session = Depends(get_db),
 ):
     user = db.query(User).filter(User.email == payload.email).first()
@@ -127,12 +152,34 @@ def verify_otp(
             "email": payload.email,
             "login": False,
         }
-
-    user.last_login_at = datetime.utcnow()
+    token = secrets.token_hex(32)
+    user.token = token
+    user.last_login_at = datetime.now(timezone.utc)
     db.commit()
+
+    res.set_cookie(
+        key="token",
+        value=token,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+    )
 
     return {
         "message": "OTP 인증 성공",
         "email": payload.email,
         "login": True,
     }
+
+@app.post("/logout", tags=["auth"])
+def logout(
+    res: Response,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    current_user.token = None
+    db.commit()
+
+    res.delete_cookie("token")
+
+    return {"message": "로그아웃 되었습니다."}
