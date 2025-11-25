@@ -152,6 +152,7 @@ def verify_otp(
             "email": payload.email,
             "login": False,
         }
+
     token = secrets.token_hex(32)
     user.token = token
     user.last_login_at = datetime.now(timezone.utc)
@@ -167,7 +168,9 @@ def verify_otp(
 
     return {
         "message": "OTP 인증 성공",
-        "email": payload.email,
+        "email": user.email,
+        "name": user.name,
+        "token": token,
         "login": True,
     }
 
