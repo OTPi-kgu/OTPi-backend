@@ -1,19 +1,25 @@
-version: "3.9"
-
 services:
   db:
     image: postgres:16
-    container_name: otpi
+    container_name: db
     environment:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: admin
       POSTGRES_DB: otpi
-    ports:
-      - "5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck: # DB 준비 완료 체크
+      test: ["CMD-SHELL", "pg_isready -U admin -d otpi"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - otpi_network # 🌟 공통 네트워크 연결
 
-  backend:
+  otpi_backend: # 🌟 서비스 이름을 'otpi_backend'로 변경
     build: .
     container_name: otpi_backend
     env_file:
@@ -21,7 +27,15 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - db
+      db:
+        condition: service_healthy # DB가 healthy 상태일 때만 시작
+    networks:
+      - otpi_network # 🌟 공통 네트워크 연결
 
 volumes:
   db_data:
+
+networks:
+  otpi_network: # 🌟 공통 네트워크 정의 (이름은 otpi_common_network)
+    name: otpi_common_network
+    driver: bridge

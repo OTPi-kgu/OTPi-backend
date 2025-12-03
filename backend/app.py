@@ -64,8 +64,11 @@ def register(
 ):
     existing = db.query(User).filter(User.email == payload.email).first()
     if existing:
-        return existing
-
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="이미 등록된 이메일입니다. 로그인 탭을 이용해 주세요."
+        )
+            
     secret = OTPi.generate_secret()
 
     user = User(
